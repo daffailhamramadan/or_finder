@@ -58,7 +58,7 @@ python3 or_finder.py -waymore -dL domains.txt
 **With Filters (Recommended):**
 Exclude static files (images, css, etc.) and keep specific extensions:
 ```bash
-python3 or_finder.py -waymore -d example.com --exclude-files --extensions "php,asp,jsp"
+python3 or_finder.py -waymore -d example.com --exclude-static-files --extensions "php,asp,jsp"
 ```
 
 ## Arguments
@@ -85,7 +85,7 @@ python3 or_finder.py -waymore -d example.com --exclude-files --extensions "php,a
 |------|-------------|
 | `-waymore` | Enable Waymore mode (requires `-d` or `-dL`) |
 | `--extensions` | Comma-separated extensions to keep (passed to `uro -w`). Use "all" for no filter. |
-| `--exclude-files` | Filter out common static files (passed to `uro -b`) |
+| `--exclude-static-files` | Filter out common static files (passed to `uro -b`) |
 | `--regex` | Regex pattern to exclude URLs |
 | `--output-dir` | Directory to save results in Waymore mode (default: `results`) |
 
@@ -106,7 +106,7 @@ scans/
 
 **Full pipeline scan on a domain:**
 ```bash
-python3 or_finder.py -waymore -d target.com --exclude-files -t 20 -o found_redirects.txt -v
+python3 or_finder.py -waymore -d target.com --exclude-static-files -t 20 -o found_redirects.txt -v
 ```
 
 **Scan a list of domains with specific extensions:**

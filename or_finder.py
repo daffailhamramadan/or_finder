@@ -36,7 +36,7 @@ def get_arguments():
     # Waymore integration arguments
     parser.add_argument("-waymore", action="store_true", help="Enable Waymore mode (requires -d or -dL)")
     parser.add_argument("--extensions", default="all", help="Comma-separated extensions to keep (passed to uro -w)")
-    parser.add_argument("--exclude-files", action="store_true", help="Filter out common static files (passed to uro -b)")
+    parser.add_argument("--exclude-static-files", action="store_true", help="Filter out common static files (passed to uro -b)")
     parser.add_argument("--regex", help="Regex pattern to exclude URLs")
     parser.add_argument("--output-dir", default="results", help="Directory to save results in Waymore mode (default: results)")
     
@@ -168,7 +168,7 @@ def process_domain_waymore(domain, args):
     
     # uro command
     uro_cmd = ["uro"]
-    if args.exclude_files:
+    if args.exclude_static_files:
         static_exts = "jpg jpeg png gif bmp svg css js ico woff woff2 ttf eot pdf doc docx xls xlsx zip tar gz rar".split()
         uro_cmd.append("-b")
         uro_cmd.extend(static_exts)
