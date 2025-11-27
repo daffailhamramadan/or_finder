@@ -87,6 +87,20 @@ python3 or_finder.py -waymore -d example.com --exclude-files --extensions "php,a
 | `--extensions` | Comma-separated extensions to keep (passed to `uro -w`). Use "all" for no filter. |
 | `--exclude-files` | Filter out common static files (passed to `uro -b`) |
 | `--regex` | Regex pattern to exclude URLs |
+| `--output-dir` | Directory to save results in Waymore mode (default: `results`) |
+
+### Output Structure (Waymore Mode)
+
+When running in Waymore mode, the tool creates a directory for each domain inside the specified `--output-dir`.
+
+Example structure for `python3 or_finder.py -waymore -d example.com --output-dir scans`:
+```
+scans/
+└── example.com/
+    ├── waymore.txt          # Raw URLs fetched by Waymore
+    ├── filtered.txt         # URLs after filtering with Uro and Regex
+    └── found_redirects.txt  # Vulnerable URLs found by the scanner
+```
 
 ## Examples
 

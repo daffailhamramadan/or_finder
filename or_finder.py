@@ -5,6 +5,7 @@ import threading
 import subprocess
 import shutil
 import re
+import os
 from queue import Queue
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from colorama import Fore, Style, init
@@ -29,7 +30,7 @@ def get_arguments():
     parser.add_argument("-p", "--payload", default="https://www.google.com", help="Payload URL to inject (default: https://www.google.com)")
     parser.add_argument("-t", "--threads", type=int, default=10, help="Number of threads (default: 10)")
     parser.add_argument("--user-agent", default=DEFAULT_UA, help="Custom User-Agent")
-    parser.add_argument("-o", "--output", help="Output file to save found redirects")
+    parser.add_argument("-o", "--output", help="Output file to save found redirects (Direct mode)")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
     
     # Waymore integration arguments
@@ -37,6 +38,7 @@ def get_arguments():
     parser.add_argument("--extensions", default="all", help="Comma-separated extensions to keep (passed to uro -w)")
     parser.add_argument("--exclude-files", action="store_true", help="Filter out common static files (passed to uro -b)")
     parser.add_argument("--regex", help="Regex pattern to exclude URLs")
+    parser.add_argument("--output-dir", default="results", help="Directory to save results in Waymore mode (default: results)")
     
     args = parser.parse_args()
     
@@ -112,13 +114,37 @@ def scan_url(url, payload, user_agent, verbose, output_file, lock):
             with lock:
                 print(f"{Fore.RED}[!] Error parsing {url}: {e}{Style.RESET_ALL}")
 
-def worker(queue, args, lock):
+def worker(queue, args, lock, output_file):
     while not queue.empty():
         url = queue.get()
-        scan_url(url, args.payload, args.user_agent, args.verbose, args.output, lock)
+        scan_url(url, args.payload, args.user_agent, args.verbose, output_file, lock)
         queue.task_done()
 
-def fetch_urls_with_waymore(domains, args):
+def run_scan(target_urls, args, output_file):
+    print(f"{Fore.BLUE}[*] Starting scan on {len(target_urls)} targets...{Style.RESET_ALL}")
+    print(f"{Fore.BLUE}[*] Payload: {args.payload}{Style.RESET_ALL}")
+    print(f"{Fore.BLUE}[*] Threads: {args.threads}{Style.RESET_ALL}")
+
+    queue = Queue()
+    for url in target_urls:
+        queue.put(url)
+
+    lock = threading.Lock()
+    threads = []
+    
+    for _ in range(min(args.threads, len(target_urls))):
+        t = threading.Thread(target=worker, args=(queue, args, lock, output_file))
+        t.start()
+        threads.append(t)
+
+    queue.join()
+    
+    for t in threads:
+        t.join()
+
+    print(f"{Fore.BLUE}[*] Scan complete.{Style.RESET_ALL}")
+
+def process_domain_waymore(domain, args):
     if not shutil.which("waymore"):
         print(f"{Fore.RED}[!] waymore not found in PATH.{Style.RESET_ALL}")
         sys.exit(1)
@@ -126,58 +152,73 @@ def fetch_urls_with_waymore(domains, args):
         print(f"{Fore.RED}[!] uro not found in PATH.{Style.RESET_ALL}")
         sys.exit(1)
 
-    all_urls = []
+    # Create domain directory
+    domain_dir = os.path.join(args.output_dir, domain)
+    os.makedirs(domain_dir, exist_ok=True)
     
-    for domain in domains:
-        print(f"{Fore.BLUE}[*] Running waymore for: {domain}{Style.RESET_ALL}")
+    raw_file = os.path.join(domain_dir, "waymore.txt")
+    filtered_file = os.path.join(domain_dir, "filtered.txt")
+    
+    print(f"{Fore.BLUE}[*] Processing domain: {domain}{Style.RESET_ALL}")
+    print(f"{Fore.BLUE}[*] Output directory: {domain_dir}{Style.RESET_ALL}")
+    
+    # waymore command
+    print(f"{Fore.BLUE}[*] Running waymore...{Style.RESET_ALL}")
+    waymore_cmd = ["waymore", "-i", domain, "-mode", "U", "--stream"]
+    
+    # uro command
+    uro_cmd = ["uro"]
+    if args.exclude_files:
+        static_exts = "jpg jpeg png gif bmp svg css js ico woff woff2 ttf eot pdf doc docx xls xlsx zip tar gz rar".split()
+        uro_cmd.append("-b")
+        uro_cmd.extend(static_exts)
+    if args.extensions != "all":
+        whitelist_exts = args.extensions.replace(",", " ").split()
+        uro_cmd.append("-w")
+        uro_cmd.extend(whitelist_exts)
         
-        # waymore command
-        waymore_cmd = ["waymore", "-i", domain, "-mode", "U", "--stream"]
-        
-        # uro command
-        uro_cmd = ["uro"]
-        if args.exclude_files:
-            static_exts = "jpg jpeg png gif bmp svg css js ico woff woff2 ttf eot pdf doc docx xls xlsx zip tar gz rar".split()
-            uro_cmd.append("-b")
-            uro_cmd.extend(static_exts)
-        if args.extensions != "all":
-            whitelist_exts = args.extensions.replace(",", " ").split()
-            uro_cmd.append("-w")
-            uro_cmd.extend(whitelist_exts)
-            
-        try:
-            # Run waymore
-            # Allow stderr to show progress/errors
+    try:
+        # Run waymore and save raw output
+        with open(raw_file, "w") as f_raw:
             p1 = subprocess.Popen(waymore_cmd, stdout=subprocess.PIPE, text=True)
             
-            # Run uro
-            p2 = subprocess.Popen(uro_cmd, stdin=p1.stdout, stdout=subprocess.PIPE, text=True)
-            p1.stdout.close()  # Allow p1 to receive a SIGPIPE if p2 exits
+            # We need to capture p1 stdout to write to file AND pass to p2 (uro)
+            # But pipe buffers might be tricky. 
+            # Safer: p1 -> file. Then cat file -> p2.
+            # Or: p1 -> p2, and we also write p1 output to file? 
+            # Let's do: p1 -> file. Then read file -> p2. This ensures we have the full raw file.
             
+            stdout, _ = p1.communicate()
+            f_raw.write(stdout)
+            
+        # Run uro on raw file
+        print(f"{Fore.BLUE}[*] Running uro...{Style.RESET_ALL}")
+        with open(raw_file, "r") as f_in, open(filtered_file, "w") as f_out:
+            p2 = subprocess.Popen(uro_cmd, stdin=f_in, stdout=subprocess.PIPE, text=True)
             output, _ = p2.communicate()
             
-            urls = output.splitlines()
-            
             # Regex filter
+            urls = output.splitlines()
             if args.regex:
                 regex = re.compile(args.regex)
                 urls = [u for u in urls if not regex.search(u)]
                 
-            print(f"{Fore.GREEN}[+] Found {len(urls)} URLs for {domain}{Style.RESET_ALL}")
-            all_urls.extend(urls)
-            
-        except Exception as e:
-            print(f"{Fore.RED}[!] Error processing {domain}: {e}{Style.RESET_ALL}")
-
-    return all_urls
+            # Write filtered URLs to file
+            for url in urls:
+                f_out.write(url + "\n")
+                
+        print(f"{Fore.GREEN}[+] Found {len(urls)} URLs for {domain}{Style.RESET_ALL}")
+        return urls, domain_dir
+        
+    except Exception as e:
+        print(f"{Fore.RED}[!] Error processing {domain}: {e}{Style.RESET_ALL}")
+        return [], domain_dir
 
 def main():
     args = get_arguments()
     
     # Disable warnings for unverified HTTPS requests
     requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
-    
-    target_urls = []
     
     if args.waymore:
         domains = []
@@ -191,10 +232,16 @@ def main():
                 print(f"{Fore.RED}[!] File not found: {args.domain_list}{Style.RESET_ALL}")
                 sys.exit(1)
         
-        target_urls = fetch_urls_with_waymore(domains, args)
+        # Process each domain
+        for domain in domains:
+            urls, domain_dir = process_domain_waymore(domain, args)
+            if urls:
+                output_file = os.path.join(domain_dir, "found_redirects.txt")
+                run_scan(urls, args, output_file)
         
     else:
         # Direct mode
+        target_urls = []
         if args.url:
             target_urls.append(args.url)
         elif args.list:
@@ -204,29 +251,8 @@ def main():
             except FileNotFoundError:
                 print(f"{Fore.RED}[!] File not found: {args.list}{Style.RESET_ALL}")
                 sys.exit(1)
-
-    print(f"{Fore.BLUE}[*] Starting scan on {len(target_urls)} targets...{Style.RESET_ALL}")
-    print(f"{Fore.BLUE}[*] Payload: {args.payload}{Style.RESET_ALL}")
-    print(f"{Fore.BLUE}[*] Threads: {args.threads}{Style.RESET_ALL}")
-
-    queue = Queue()
-    for url in target_urls:
-        queue.put(url)
-
-    lock = threading.Lock()
-    threads = []
-    
-    for _ in range(min(args.threads, len(target_urls))):
-        t = threading.Thread(target=worker, args=(queue, args, lock))
-        t.start()
-        threads.append(t)
-
-    queue.join()
-    
-    for t in threads:
-        t.join()
-
-    print(f"{Fore.BLUE}[*] Scan complete.{Style.RESET_ALL}")
+                
+        run_scan(target_urls, args, args.output)
 
 if __name__ == "__main__":
     main()
