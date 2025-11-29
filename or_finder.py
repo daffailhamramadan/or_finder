@@ -1,5 +1,6 @@
 import argparse
 import requests
+import configparser
 import sys
 import threading
 import subprocess
@@ -32,6 +33,7 @@ def get_arguments():
     parser.add_argument("--user-agent", default=DEFAULT_UA, help="Custom User-Agent")
     parser.add_argument("-o", "--output", help="Output file to save found redirects (Direct mode)")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+    parser.add_argument("--discord-webhook", help="Discord Webhook URL for notifications")
     
     # Waymore integration arguments
     parser.add_argument("-waymore", action="store_true", help="Enable Waymore mode (requires -d or -dL)")
@@ -52,7 +54,19 @@ def get_arguments():
             
     return args
 
-def scan_url(url, payload, user_agent, verbose, output_file, lock):
+def send_discord_notification(webhook_url, message):
+    if not webhook_url:
+        return
+    
+    data = {
+        "content": message
+    }
+    try:
+        requests.post(webhook_url, json=data)
+    except Exception as e:
+        print(f"{Fore.RED}[!] Error sending Discord notification: {e}{Style.RESET_ALL}")
+
+def scan_url(url, payload, user_agent, verbose, output_file, lock, discord_webhook=None):
     try:
         # Parse the URL
         parsed = urlparse(url)
@@ -96,6 +110,10 @@ def scan_url(url, payload, user_agent, verbose, output_file, lock):
                             if output_file:
                                 with open(output_file, "a") as f:
                                     f.write(f"{fuzzed_url}\n")
+                            
+                            if discord_webhook:
+                                message = f"**Open Redirect Found!**\nURL: {fuzzed_url}\nRedirects to: {location}"
+                                send_discord_notification(discord_webhook, message)
                     elif verbose:
                          with lock:
                             print(f"{Fore.RED}[-] Redirected to {location} (Not payload){Style.RESET_ALL}")
@@ -117,7 +135,7 @@ def scan_url(url, payload, user_agent, verbose, output_file, lock):
 def worker(queue, args, lock, output_file):
     while not queue.empty():
         url = queue.get()
-        scan_url(url, args.payload, args.user_agent, args.verbose, output_file, lock)
+        scan_url(url, args.payload, args.user_agent, args.verbose, output_file, lock, args.discord_webhook)
         queue.task_done()
 
 def run_scan(target_urls, args, output_file):
@@ -216,6 +234,14 @@ def process_domain_waymore(domain, args):
 
 def main():
     args = get_arguments()
+
+    # Load config
+    config = configparser.ConfigParser()
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.ini')
+    if os.path.exists(config_path):
+        config.read(config_path)
+        if not args.discord_webhook and 'discord' in config and 'webhook_url' in config['discord']:
+             args.discord_webhook = config['discord']['webhook_url']
     
     # Disable warnings for unverified HTTPS requests
     requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
