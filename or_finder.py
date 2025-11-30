@@ -261,10 +261,10 @@ async def scan_dom_redirect(context, url, payload, verbose, output_file, lock, d
                 try:
                     # Wait for the URL to change to the payload
                     # This handles cases where the redirect happens after some JS execution
-                    await page.wait_for_url(lambda u: u.startswith(payload) or payload in u, timeout=timeout)
+                    await page.wait_for_url(lambda u: u.startswith(payload), timeout=timeout)
                     
                     final_url = page.url
-                    if payload in final_url:
+                    if final_url.startswith(payload):
                          with lock:
                             print(f"{Fore.GREEN}[+] DOM OPEN REDIRECT FOUND: {fuzzed_url}{Style.RESET_ALL}")
                             print(f"    {Fore.CYAN}Redirects to: {final_url}{Style.RESET_ALL}")
@@ -279,7 +279,7 @@ async def scan_dom_redirect(context, url, payload, verbose, output_file, lock, d
                 except Exception:
                     # Timeout waiting for redirect, check current URL one last time
                     final_url = page.url
-                    if payload in final_url and final_url.startswith(payload):
+                    if final_url.startswith(payload):
                          with lock:
                             print(f"{Fore.GREEN}[+] DOM OPEN REDIRECT FOUND: {fuzzed_url}{Style.RESET_ALL}")
                             print(f"    {Fore.CYAN}Redirects to: {final_url}{Style.RESET_ALL}")
