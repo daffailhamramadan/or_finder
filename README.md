@@ -15,6 +15,7 @@ A powerful CLI tool to detect Open Redirect vulnerabilities. It supports direct 
 - Python 3.x
 - [Waymore](https://github.com/xnl-h4ck3r/waymore) (for Discovery Mode)
 - [Uro](https://github.com/s0md3v/uro) (for Discovery Mode)
+- [Playwright](https://playwright.dev/) (for DOM Scanner Mode)
 
 ## Installation
 
@@ -22,7 +23,10 @@ A powerful CLI tool to detect Open Redirect vulnerabilities. It supports direct 
 2. Install Python dependencies:
    ```bash
    pip install -r requirements.txt
+   pip install playwright
+   playwright install chromium
    ```
+   *Note: If you encounter an "externally-managed-environment" error, you may need to use `--break-system-packages` or install via your system package manager.*
 3. Ensure `waymore` and `uro` are installed and in your system PATH if you plan to use Discovery Mode.
 
 ## Usage
@@ -61,6 +65,20 @@ Exclude static files (images, css, etc.) and keep specific extensions:
 python3 or_finder.py -waymore -d example.com --exclude-static-files --extensions "php,asp,jsp"
 ```
 
+### 3. DOM Scanner Mode (Advanced)
+
+Use this mode to detect DOM-based open redirects (e.g., JavaScript redirects) that standard requests cannot find. This mode is slower as it uses a headless browser.
+
+**Enable DOM Scanning:**
+```bash
+python3 or_finder.py -u "https://example.com/redirect?next=foo" --dom
+```
+
+**With Custom Timeout and Visible Browser:**
+```bash
+python3 or_finder.py -u "https://example.com/redirect?next=foo" --dom --dom-timeout 10000 --no-headless
+```
+
 ## Arguments
 
 ### Target Arguments
@@ -88,6 +106,14 @@ python3 or_finder.py -waymore -d example.com --exclude-static-files --extensions
 | `--exclude-static-files` | Filter out common static files (passed to `uro -b`) |
 | `--regex` | Regex pattern to exclude URLs |
 | `--output-dir` | Directory to save results in Waymore mode (default: `results`) |
+
+### DOM Scanner Arguments
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--dom` | Enable DOM-based Open Redirect scanning (requires Playwright) | False |
+| `--dom-timeout` | Timeout for DOM navigation in ms | `5000` |
+| `--headless` | Run browser in headless mode | `True` |
+| `--no-headless` | Run browser in visible mode | False |
 
 ### Output Structure (Waymore Mode)
 
